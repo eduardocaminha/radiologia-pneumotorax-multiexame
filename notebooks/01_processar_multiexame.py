@@ -57,7 +57,7 @@ print(f"📋 Procedimentos de busca: {len(codigos_busca)} códigos")
 print(f"   Exemplos: {codigos_busca[:5]}")
 
 # Carregar procedimentos de RX tórax (19 códigos)
-df_proc_rx = pd.read_csv("/Workspace/Innovation/t_eduardo.caminha/radiologia_pneumotorax_multiexame/config/procedimentos_rx_torax.csv")
+df_proc_rx = pd.read_csv("/Workspace/Innovation/t_eduardo.caminha/radiologia-pneumotorax-multiexame/config/procedimentos_rx_torax.csv")
 codigos_rx_torax = df_proc_rx['CD_PROCEDIMENTO'].tolist()
 dict_proc_rx = dict(zip(df_proc_rx['CD_PROCEDIMENTO'], df_proc_rx['NM_PROCEDIMENTO']))
 
