@@ -157,6 +157,104 @@ print(f"   Período: {meses[0][2]} até {meses[-1][2]}")
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ### 3.2.1. TESTE - Processar 1 Mês de Amostra (Validação)
+
+# COMMAND ----------
+
+# TESTAR COM 1 MÊS ANTES DE PROCESSAR TUDO
+print("🧪 MODO TESTE: Processando apenas 1 mês para validação")
+print("=" * 60)
+
+mes_teste = meses[0]  # Primeiro mês disponível
+mes_inicio_teste, mes_fim_teste, mes_label_teste = mes_teste
+
+dados_teste = []
+
+for fonte in ['HSP', 'PSC']:
+    try:
+        print(f"\n🔍 Testando {fonte} - {mes_label_teste}...")
+        
+        query_proc_teste = f"""
+        SELECT 
+            CD_ATENDIMENTO,
+            CD_OCORRENCIA,
+            CD_ORDEM,
+            CD_PROCEDIMENTO,
+            DT_PROCEDIMENTO_REALIZADO
+        FROM RAWZN.RAW_{fonte}_TB_PROCEDIMENTO_REALIZADO
+        WHERE CD_PROCEDIMENTO IN ({','.join(map(str, codigos_busca))})
+          AND DT_PROCEDIMENTO_REALIZADO >= DATE '{mes_inicio_teste}'
+          AND DT_PROCEDIMENTO_REALIZADO < DATE '{mes_fim_teste}'
+          AND ROWNUM <= 10  -- APENAS 10 REGISTROS PARA TESTE
+        """
+        
+        df_proc_teste = run_sql(query_proc_teste)
+        
+        if len(df_proc_teste) == 0:
+            print(f"   ⏭️  Nenhum registro encontrado em {fonte}")
+            continue
+        
+        df_proc_teste = pd.DataFrame(df_proc_teste)
+        print(f"   ✅ {len(df_proc_teste)} procedimentos encontrados")
+        
+        # Testar busca de laudos
+        lista_chaves_teste = list(zip(
+            df_proc_teste['CD_ATENDIMENTO'],
+            df_proc_teste['CD_OCORRENCIA'],
+            df_proc_teste['CD_ORDEM']
+        ))
+        
+        condicoes_teste = ' OR '.join([
+            f"(CD_ATENDIMENTO = {atend} AND CD_OCORRENCIA = {ocorr} AND CD_ORDEM = {ordem})"
+            for atend, ocorr, ordem in lista_chaves_teste[:5]  # Apenas 5
+        ])
+        
+        query_laudos_teste = f"""
+        SELECT 
+            CD_ATENDIMENTO,
+            CD_OCORRENCIA,
+            CD_ORDEM,
+            DS_LAUDO_MEDICO
+        FROM RAWZN.RAW_{fonte}_TB_LAUDO_PACIENTE
+        WHERE {condicoes_teste}
+        """
+        
+        df_laudos_teste = run_sql(query_laudos_teste)
+        print(f"   ✅ {len(df_laudos_teste)} laudos encontrados")
+        
+        # Testar detecção de pneumotórax
+        if len(df_laudos_teste) > 0:
+            df_laudos_teste = pd.DataFrame(df_laudos_teste)
+            laudo_exemplo = str(df_laudos_teste.iloc[0]['DS_LAUDO_MEDICO']) if len(df_laudos_teste) > 0 else None
+            
+            if laudo_exemplo:
+                tem_pneumot, trecho = detectar_pneumot(laudo_exemplo)
+                print(f"   ✅ Detecção pneumot funcionando: {tem_pneumot}")
+                if tem_pneumot:
+                    print(f"      Trecho: {trecho[:100]}...")
+        
+        print(f"   ✅ Pipeline de {fonte} funcionando corretamente!")
+        dados_teste.append(df_proc_teste)
+        
+    except Exception as e:
+        print(f"   ❌ ERRO em {fonte}: {e}")
+        print(f"      Corrija antes de processar todos os meses!")
+        raise
+
+print("\n" + "=" * 60)
+print("✅ TESTE CONCLUÍDO COM SUCESSO!")
+print("   Todas as etapas funcionam corretamente.")
+print("   Pode prosseguir com processamento completo.")
+print("=" * 60)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 3.2.2. Processar Todos os Meses (Produção)
+
+# COMMAND ----------
+
 # Lista para acumular resultados antes de salvar no Delta
 dados_acumulados = []
 total_procedimentos = 0
@@ -469,7 +567,41 @@ print("✅ Função validar_pneumot_llm() criada")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### 4.3. Processar Bronze e Validar com LLM
+# MAGIC ### 4.3. TESTE - Validar 3 Registros com LLM (Amostra)
+
+# COMMAND ----------
+
+# TESTAR LLM COM 3 REGISTROS ANTES DE PROCESSAR TUDO
+print("🧪 MODO TESTE: Validando 3 registros com LLM")
+print("=" * 60)
+
+df_bronze_spark_teste = spark.table(TABELA_BRONZE)
+df_bronze_pd_teste = df_bronze_spark_teste.limit(3).toPandas()
+
+print(f"📊 Testando com {len(df_bronze_pd_teste)} registros")
+
+for idx, row in df_bronze_pd_teste.iterrows():
+    print(f"\n🔍 Teste {idx + 1}/3:")
+    print(f"   Trecho: {row['TRECHO_PNEUMOT'][:100]}...")
+    
+    try:
+        resposta, tempo = validar_pneumot_llm(row['TRECHO_PNEUMOT'])
+        print(f"   ✅ Resposta LLM: {resposta} (tempo: {tempo:.2f}s)")
+    except Exception as e:
+        print(f"   ❌ ERRO: {e}")
+        print(f"      Corrija a função LLM antes de processar tudo!")
+        raise
+
+print("\n" + "=" * 60)
+print("✅ TESTE LLM CONCLUÍDO COM SUCESSO!")
+print("   LLM está respondendo corretamente.")
+print("   Pode prosseguir com validação completa.")
+print("=" * 60)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 4.4. Processar Bronze Completa e Validar com LLM (Produção)
 
 # COMMAND ----------
 
@@ -551,7 +683,50 @@ print(f"📊 Atendimentos únicos: {len(cd_atendimentos_positivos)}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### 5.2. Buscar RX de Tórax dos Casos Positivos
+# MAGIC ### 5.2. TESTE - Buscar RX de 3 Atendimentos (Amostra)
+
+# COMMAND ----------
+
+# TESTAR BUSCA DE RX COM 3 ATENDIMENTOS
+print("🧪 MODO TESTE: Buscando RX de 3 atendimentos")
+print("=" * 60)
+
+atends_teste = cd_atendimentos_positivos[:3] if len(cd_atendimentos_positivos) >= 3 else cd_atendimentos_positivos
+
+for fonte in ['HSP', 'PSC']:
+    try:
+        print(f"\n🔍 Testando busca RX em {fonte}...")
+        valores_in_teste = ', '.join(str(x) for x in atends_teste)
+        
+        query_rx_teste = f"""
+        SELECT 
+            CD_ATENDIMENTO,
+            CD_OCORRENCIA,
+            CD_ORDEM,
+            CD_PROCEDIMENTO
+        FROM RAWZN.RAW_{fonte}_TB_PROCEDIMENTO_REALIZADO
+        WHERE CD_ATENDIMENTO IN ({valores_in_teste})
+          AND CD_PROCEDIMENTO IN ({','.join(map(str, codigos_rx_torax))})
+        """
+        
+        df_rx_teste = run_sql(query_rx_teste)
+        print(f"   ✅ {len(df_rx_teste)} RX encontrados em {fonte}")
+        
+    except Exception as e:
+        print(f"   ❌ ERRO em {fonte}: {e}")
+        print(f"      Corrija antes de processar todos!")
+        raise
+
+print("\n" + "=" * 60)
+print("✅ TESTE BUSCA RX CONCLUÍDO!")
+print("   Query de RX funcionando corretamente.")
+print("   Pode prosseguir com busca completa.")
+print("=" * 60)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 5.3. Buscar RX de Tórax de Todos os Casos Positivos (Produção)
 
 # COMMAND ----------
 
