@@ -673,12 +673,25 @@ display(spark.table(TABELA_SILVER).limit(10))
 df_silver_spark = spark.table(TABELA_SILVER)
 df_silver_pd = df_silver_spark.toPandas()
 
-# Filtrar apenas SIM
+# Filtrar apenas SIM e preparar timestamps
 df_positivos = df_silver_pd[df_silver_pd['INF_LLM'] == 'SIM'].copy()
-cd_atendimentos_positivos = df_positivos['CD_ATENDIMENTO'].dropna().astype(int).unique().tolist()
+
+# Preparar informações necessárias: CD_ATENDIMENTO, DT/HR do procedimento original, FONTE
+# Vamos buscar essas informações da Bronze (que tem DT_PROCEDIMENTO_REALIZADO)
+df_bronze_info = spark.table(TABELA_BRONZE).select(
+    'CD_ATENDIMENTO', 'CD_OCORRENCIA', 'CD_ORDEM', 
+    'DT_PROCEDIMENTO_REALIZADO', 'FONTE'
+).toPandas()
+
+# Merge para trazer data do procedimento positivo
+df_positivos = df_positivos.merge(
+    df_bronze_info[['CD_ATENDIMENTO', 'CD_OCORRENCIA', 'CD_ORDEM', 'DT_PROCEDIMENTO_REALIZADO', 'FONTE']],
+    on=['CD_ATENDIMENTO', 'CD_OCORRENCIA', 'CD_ORDEM'],
+    how='left'
+)
 
 print(f"📊 Casos positivos (SIM): {len(df_positivos)}")
-print(f"📊 Atendimentos únicos: {len(cd_atendimentos_positivos)}")
+print(f"📊 Atendimentos únicos: {df_positivos['CD_ATENDIMENTO'].nunique()}")
 
 # COMMAND ----------
 
@@ -687,39 +700,75 @@ print(f"📊 Atendimentos únicos: {len(cd_atendimentos_positivos)}")
 
 # COMMAND ----------
 
-# TESTAR BUSCA DE RX COM 3 ATENDIMENTOS
-print("🧪 MODO TESTE: Buscando RX de 3 atendimentos")
+# TESTAR BUSCA DE RX COM 3 PROCEDIMENTOS POSITIVOS
+print("🧪 MODO TESTE: Buscando RX 12h antes de 3 procedimentos positivos")
 print("=" * 60)
 
-atends_teste = cd_atendimentos_positivos[:3] if len(cd_atendimentos_positivos) >= 3 else cd_atendimentos_positivos
+df_teste = df_positivos.head(3)
 
-for fonte in ['HSP', 'PSC']:
+for idx, row in df_teste.iterrows():
+    fonte = row['FONTE']
+    cd_atend = int(row['CD_ATENDIMENTO'])
+    dt_proc = row['DT_PROCEDIMENTO_REALIZADO']
+    
+    print(f"\n🔍 Teste {idx + 1}/3: Atendimento {cd_atend} ({fonte})")
+    print(f"   Data procedimento positivo: {dt_proc}")
+    
     try:
-        print(f"\n🔍 Testando busca RX em {fonte}...")
-        valores_in_teste = ', '.join(str(x) for x in atends_teste)
-        
+        # Buscar RX realizados 12h ANTES do procedimento positivo
         query_rx_teste = f"""
+        WITH PROC_POSITIVO AS (
+            SELECT 
+                CD_ATENDIMENTO,
+                CD_OCORRENCIA,
+                CD_ORDEM,
+                CAST(
+                    TO_DATE(DT_PROCEDIMENTO_REALIZADO, 'DD/MM/RR')
+                    + NUMTODSINTERVAL(HR_PROCEDIMENTO_REALIZADO, 'SECOND')
+                    AS TIMESTAMP
+                ) AS TS_PROCEDIMENTO
+            FROM RAWZN.RAW_{fonte}_TB_PROCEDIMENTO_REALIZADO
+            WHERE CD_ATENDIMENTO = {cd_atend}
+              AND CD_OCORRENCIA = {int(row['CD_OCORRENCIA'])}
+              AND CD_ORDEM = {int(row['CD_ORDEM'])}
+        )
         SELECT 
-            CD_ATENDIMENTO,
-            CD_OCORRENCIA,
-            CD_ORDEM,
-            CD_PROCEDIMENTO
-        FROM RAWZN.RAW_{fonte}_TB_PROCEDIMENTO_REALIZADO
-        WHERE CD_ATENDIMENTO IN ({valores_in_teste})
-          AND CD_PROCEDIMENTO IN ({','.join(map(str, codigos_rx_torax))})
+            RX.CD_ATENDIMENTO,
+            RX.CD_OCORRENCIA,
+            RX.CD_ORDEM,
+            RX.CD_PROCEDIMENTO,
+            CAST(
+                TO_DATE(RX.DT_PROCEDIMENTO_REALIZADO, 'DD/MM/RR')
+                + NUMTODSINTERVAL(RX.HR_PROCEDIMENTO_REALIZADO, 'SECOND')
+                AS TIMESTAMP
+            ) AS TS_RX
+        FROM RAWZN.RAW_{fonte}_TB_PROCEDIMENTO_REALIZADO RX
+        CROSS JOIN PROC_POSITIVO PP
+        WHERE RX.CD_ATENDIMENTO = PP.CD_ATENDIMENTO
+          AND RX.CD_PROCEDIMENTO IN ({','.join(map(str, codigos_rx_torax))})
+          AND CAST(
+                TO_DATE(RX.DT_PROCEDIMENTO_REALIZADO, 'DD/MM/RR')
+                + NUMTODSINTERVAL(RX.HR_PROCEDIMENTO_REALIZADO, 'SECOND')
+                AS TIMESTAMP
+              ) BETWEEN PP.TS_PROCEDIMENTO - INTERVAL '12' HOUR 
+                    AND PP.TS_PROCEDIMENTO
         """
         
         df_rx_teste = run_sql(query_rx_teste)
-        print(f"   ✅ {len(df_rx_teste)} RX encontrados em {fonte}")
+        print(f"   ✅ {len(df_rx_teste)} RX encontrados 12h antes")
+        
+        if len(df_rx_teste) > 0:
+            df_rx_teste_pd = pd.DataFrame(df_rx_teste)
+            print(f"      Timestamps RX: {df_rx_teste_pd['TS_RX'].tolist()}")
         
     except Exception as e:
-        print(f"   ❌ ERRO em {fonte}: {e}")
+        print(f"   ❌ ERRO: {e}")
         print(f"      Corrija antes de processar todos!")
         raise
 
 print("\n" + "=" * 60)
 print("✅ TESTE BUSCA RX CONCLUÍDO!")
-print("   Query de RX funcionando corretamente.")
+print("   Query de RX com janela 12h funcionando.")
 print("   Pode prosseguir com busca completa.")
 print("=" * 60)
 
@@ -733,23 +782,70 @@ print("=" * 60)
 # Lista para acumular RX encontrados
 rx_encontrados = []
 
-# Processar em batch de 500
+# Processar por FONTE e em batch
 for fonte in ['HSP', 'PSC']:
-    for inicio in range(0, len(cd_atendimentos_positivos), 500):
-        chunk = cd_atendimentos_positivos[inicio:inicio + 500]
-        valores_in = ', '.join(str(x) for x in chunk)
+    print(f"\n🔍 Processando {fonte}...")
+    
+    # Filtrar positivos desta fonte
+    df_positivos_fonte = df_positivos[df_positivos['FONTE'] == fonte].copy()
+    
+    if len(df_positivos_fonte) == 0:
+        print(f"   ⏭️  Nenhum positivo em {fonte}")
+        continue
+    
+    print(f"   📊 {len(df_positivos_fonte)} procedimentos positivos")
+    
+    # Processar em batch de 100 (menor para não pesar query com timestamps)
+    for inicio in range(0, len(df_positivos_fonte), 100):
+        chunk_df = df_positivos_fonte.iloc[inicio:inicio + 100]
+        
+        # Montar condições para múltiplos procedimentos positivos
+        condicoes_proc = []
+        for _, row in chunk_df.iterrows():
+            condicoes_proc.append(
+                f"(PP.CD_ATENDIMENTO = {int(row['CD_ATENDIMENTO'])} "
+                f"AND PP.CD_OCORRENCIA = {int(row['CD_OCORRENCIA'])} "
+                f"AND PP.CD_ORDEM = {int(row['CD_ORDEM'])})"
+            )
+        
+        condicoes_str = ' OR '.join(condicoes_proc)
         
         try:
-            # Buscar RX de tórax
+            # Buscar RX realizados 12h ANTES de cada procedimento positivo
             query_rx = f"""
-            SELECT 
-                CD_ATENDIMENTO,
-                CD_OCORRENCIA,
-                CD_ORDEM,
-                CD_PROCEDIMENTO
-            FROM RAWZN.RAW_{fonte}_TB_PROCEDIMENTO_REALIZADO
-            WHERE CD_ATENDIMENTO IN ({valores_in})
-              AND CD_PROCEDIMENTO IN ({','.join(map(str, codigos_rx_torax))})
+            WITH PROC_POSITIVO AS (
+                SELECT 
+                    CD_ATENDIMENTO,
+                    CD_OCORRENCIA,
+                    CD_ORDEM,
+                    CAST(
+                        TO_DATE(DT_PROCEDIMENTO_REALIZADO, 'DD/MM/RR')
+                        + NUMTODSINTERVAL(HR_PROCEDIMENTO_REALIZADO, 'SECOND')
+                        AS TIMESTAMP
+                    ) AS TS_PROCEDIMENTO
+                FROM RAWZN.RAW_{fonte}_TB_PROCEDIMENTO_REALIZADO PP
+                WHERE {condicoes_str}
+            )
+            SELECT DISTINCT
+                RX.CD_ATENDIMENTO,
+                RX.CD_OCORRENCIA,
+                RX.CD_ORDEM,
+                RX.CD_PROCEDIMENTO,
+                CAST(
+                    TO_DATE(RX.DT_PROCEDIMENTO_REALIZADO, 'DD/MM/RR')
+                    + NUMTODSINTERVAL(RX.HR_PROCEDIMENTO_REALIZADO, 'SECOND')
+                    AS TIMESTAMP
+                ) AS TS_RX
+            FROM RAWZN.RAW_{fonte}_TB_PROCEDIMENTO_REALIZADO RX
+            INNER JOIN PROC_POSITIVO PP 
+                ON RX.CD_ATENDIMENTO = PP.CD_ATENDIMENTO
+            WHERE RX.CD_PROCEDIMENTO IN ({','.join(map(str, codigos_rx_torax))})
+              AND CAST(
+                    TO_DATE(RX.DT_PROCEDIMENTO_REALIZADO, 'DD/MM/RR')
+                    + NUMTODSINTERVAL(RX.HR_PROCEDIMENTO_REALIZADO, 'SECOND')
+                    AS TIMESTAMP
+                  ) BETWEEN PP.TS_PROCEDIMENTO - INTERVAL '12' HOUR 
+                        AND PP.TS_PROCEDIMENTO
             """
             
             df_rx = run_sql(query_rx)
@@ -758,17 +854,20 @@ for fonte in ['HSP', 'PSC']:
                 df_rx = pd.DataFrame(df_rx)
                 df_rx['FONTE'] = fonte
                 rx_encontrados.append(df_rx)
+                print(f"   ✅ Batch {inicio//100 + 1}: {len(df_rx)} RX encontrados")
+            else:
+                print(f"   ⏭️  Batch {inicio//100 + 1}: nenhum RX")
                 
         except Exception as e:
-            print(f"⚠️ Erro ao buscar RX {fonte}: {e}")
+            print(f"   ⚠️ Erro batch {inicio//100 + 1}: {e}")
             continue
 
 if rx_encontrados:
     df_rx_todos = pd.concat(rx_encontrados, ignore_index=True)
-    print(f"✅ Total de RX de tórax encontrados: {len(df_rx_todos)}")
+    print(f"\n✅ Total de RX de tórax encontrados (12h antes): {len(df_rx_todos)}")
 else:
-    print("⚠️ Nenhum RX de tórax encontrado!")
-    df_rx_todos = pd.DataFrame(columns=['CD_ATENDIMENTO', 'CD_OCORRENCIA', 'CD_ORDEM', 'CD_PROCEDIMENTO', 'FONTE'])
+    print("\n⚠️ Nenhum RX de tórax encontrado!")
+    df_rx_todos = pd.DataFrame(columns=['CD_ATENDIMENTO', 'CD_OCORRENCIA', 'CD_ORDEM', 'CD_PROCEDIMENTO', 'TS_RX', 'FONTE'])
 
 # COMMAND ----------
 
