@@ -49,7 +49,7 @@ print("✅ Conexão estabelecida!")
 # COMMAND ----------
 
 # Carregar procedimentos de busca (48 códigos)
-df_proc_busca = pd.read_csv("/Workspace/Innovation/t_eduardo.caminha/radiologia_pneumotorax_multiexame/config/procedimentos_busca.csv")
+df_proc_busca = pd.read_csv("/Workspace/Innovation/t_eduardo.caminha/radiologia-pneumotorax-multiexame/config/procedimentos_busca.csv")
 codigos_busca = df_proc_busca['CD_PROCEDIMENTO'].tolist()
 dict_proc_busca = dict(zip(df_proc_busca['CD_PROCEDIMENTO'], df_proc_busca['NM_PROCEDIMENTO']))
 
@@ -212,7 +212,7 @@ for i, (mes_inicio, mes_fim, mes_label) in enumerate(tqdm(meses, desc="Processan
                     CD_ATENDIMENTO,
                     CD_OCORRENCIA,
                     CD_ORDEM,
-                    CAST(DS_LAUDO_MEDICO AS VARCHAR(32000)) AS DS_LAUDO_MEDICO
+                    DS_LAUDO_MEDICO
                 FROM RAWZN.RAW_{fonte}_TB_LAUDO_PACIENTE
                 WHERE {condicoes}
                 """
@@ -223,7 +223,11 @@ for i, (mes_inicio, mes_fim, mes_label) in enumerate(tqdm(meses, desc="Processan
                     df_laudos_chunk = pd.DataFrame(df_laudos_chunk)
                     for _, row in df_laudos_chunk.iterrows():
                         chave = (row['CD_ATENDIMENTO'], row['CD_OCORRENCIA'], row['CD_ORDEM'])
-                        laudos_dict[chave] = row['DS_LAUDO_MEDICO']
+                        # Converter LONG para string em Python
+                        laudo = row['DS_LAUDO_MEDICO']
+                        if laudo is not None:
+                            laudo = str(laudo)
+                        laudos_dict[chave] = laudo
             
             # Juntar laudos com procedimentos
             df_proc['DS_LAUDO_MEDICO'] = df_proc.apply(
@@ -598,7 +602,7 @@ if len(df_rx_todos) > 0:
                     CD_ATENDIMENTO,
                     CD_OCORRENCIA,
                     CD_ORDEM,
-                    CAST(DS_LAUDO_MEDICO AS VARCHAR(32000)) AS DS_LAUDO_MEDICO
+                    DS_LAUDO_MEDICO
                 FROM RAWZN.RAW_{fonte}_TB_LAUDO_PACIENTE
                 WHERE {condicoes}
                 """
@@ -609,7 +613,11 @@ if len(df_rx_todos) > 0:
                     df_laudos_rx = pd.DataFrame(df_laudos_rx)
                     for _, row in df_laudos_rx.iterrows():
                         chave = (row['CD_ATENDIMENTO'], row['CD_OCORRENCIA'], row['CD_ORDEM'])
-                        laudos_rx_dict[chave] = row['DS_LAUDO_MEDICO']
+                        # Converter LONG para string em Python
+                        laudo = row['DS_LAUDO_MEDICO']
+                        if laudo is not None:
+                            laudo = str(laudo)
+                        laudos_rx_dict[chave] = laudo
                         
             except Exception as e:
                 print(f"⚠️ Erro ao buscar laudos RX {fonte}: {e}")
