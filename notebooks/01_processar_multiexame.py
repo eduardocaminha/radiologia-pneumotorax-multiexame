@@ -316,7 +316,32 @@ print(f"Chunks acumulados: {len(dados_acumulados)}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### 3.3. Salvar Tabela Bronze no Delta Lake
+# MAGIC ### 3.3. Verificar Tabela Bronze Existente
+
+# COMMAND ----------
+
+# Verificar se tabela já existe e quantos registros tem
+try:
+    df_bronze_existente = spark.table(TABELA_BRONZE)
+    total_existente = df_bronze_existente.count()
+    print(f"⚠️  Tabela Bronze já existe com {total_existente} registros!")
+    print(f"   Se continuar, serão adicionados mais {len(dados_acumulados)} chunks (mode='append')")
+    print(f"   Para evitar duplicação, considere DROP TABLE ou use mode='overwrite'")
+    
+    # Mostrar últimos registros processados
+    from pyspark.sql.functions import max as spark_max, count as spark_count
+    print(f"\n📅 Últimas datas processadas na tabela existente:")
+    display(df_bronze_existente.groupBy('FONTE').agg(
+        spark_max('DT_PROCESSAMENTO').alias('ULTIMO_PROCESSAMENTO'),
+        spark_count('*').alias('TOTAL_REGISTROS')
+    ))
+except Exception as e:
+    print(f"✅ Tabela Bronze não existe ainda. Será criada.")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 3.4. Salvar Tabela Bronze no Delta Lake
 
 # COMMAND ----------
 
@@ -324,10 +349,10 @@ if dados_acumulados:
     # Concatenar todos os DataFrames
     df_bronze_pd = pd.concat(dados_acumulados, ignore_index=True)
     
-    # Reordenar e selecionar colunas
+    # Reordenar e selecionar colunas (remover NM_PROCEDIMENTO que está causando problema)
     colunas_bronze = [
         'CD_PACIENTE', 'CD_ATENDIMENTO', 'CD_OCORRENCIA', 'CD_ORDEM',
-        'CD_PROCEDIMENTO', 'NM_PROCEDIMENTO', 'DS_LAUDO_MEDICO',
+        'CD_PROCEDIMENTO', 'DS_LAUDO_MEDICO',
         'TRECHO_PNEUMOT', 'DT_PROCEDIMENTO_REALIZADO', 'FONTE', 'DT_PROCESSAMENTO'
     ]
     df_bronze_pd = df_bronze_pd[colunas_bronze]
