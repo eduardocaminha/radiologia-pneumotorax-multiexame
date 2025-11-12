@@ -492,10 +492,16 @@ df_bronze_pd['INF_LLM'] = resultados_llm
 df_bronze_pd['TEMPO_LLM_S'] = tempos_llm
 
 print(f"\n📊 Resultados LLM:")
-print(f"   SIM: {sum(1 for x in resultados_llm if x == 'SIM')}")
-print(f"   NAO: {sum(1 for x in resultados_llm if x == 'NAO')}")
-print(f"   ERRO: {sum(1 for x in resultados_llm if x == 'ERRO')}")
-print(f"   Tempo médio: {sum(tempos_llm) / len(tempos_llm):.2f}s")
+# Usar len() ao invés de sum() para evitar conflito com PySpark
+total_sim = len([x for x in resultados_llm if x == 'SIM'])
+total_nao = len([x for x in resultados_llm if x == 'NAO'])
+total_erro = len([x for x in resultados_llm if x == 'ERRO'])
+tempo_medio = sum(tempos_llm) / len(tempos_llm) if len(tempos_llm) > 0 else 0
+
+print(f"   SIM: {total_sim}")
+print(f"   NAO: {total_nao}")
+print(f"   ERRO: {total_erro}")
+print(f"   Tempo médio: {tempo_medio:.2f}s")
 
 # COMMAND ----------
 
