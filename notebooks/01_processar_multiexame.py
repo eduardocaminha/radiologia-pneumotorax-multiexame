@@ -106,9 +106,10 @@ def detectar_pneumot(texto):
             if idx == -1:
                 break
             
-            # Extrair 30 chars antes e depois
-            inicio = max(0, idx - 30)
-            fim = min(len(texto_str), idx + len(padrao) + 30)
+            # Extrair 30 chars antes e depois (usar if/else ao invés de max/min)
+            inicio = 0 if idx - 30 < 0 else idx - 30
+            fim_calc = idx + len(padrao) + 30
+            fim = len(texto_str) if fim_calc > len(texto_str) else fim_calc
             trecho = texto_str[inicio:fim].strip()
             
             # Limpar espaços múltiplos
