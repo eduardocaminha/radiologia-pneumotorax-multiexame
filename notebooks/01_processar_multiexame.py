@@ -689,13 +689,35 @@ df_bronze_info = spark.table(TABELA_BRONZE).select(
 
 # Merge para trazer data do procedimento positivo
 df_positivos = df_positivos.merge(
-    df_bronze_info[['CD_ATENDIMENTO', 'CD_OCORRENCIA', 'CD_ORDEM', 'DT_PROCEDIMENTO_REALIZADO', 'FONTE']],
+    df_bronze_info,
     on=['CD_ATENDIMENTO', 'CD_OCORRENCIA', 'CD_ORDEM'],
-    how='left'
+    how='left',
+    suffixes=('', '_bronze')
 )
+
+# Verificar se FONTE veio do merge
+if 'FONTE' not in df_positivos.columns and 'FONTE_bronze' in df_positivos.columns:
+    df_positivos['FONTE'] = df_positivos['FONTE_bronze']
 
 print(f"📊 Casos positivos (SIM): {len(df_positivos)}")
 print(f"📊 Atendimentos únicos: {df_positivos['CD_ATENDIMENTO'].nunique()}")
+print(f"📋 Colunas disponíveis: {list(df_positivos.columns)}")
+
+# Verificar se FONTE está presente
+if 'FONTE' not in df_positivos.columns:
+    print("⚠️ ATENÇÃO: Coluna FONTE não encontrada!")
+    print("   Verificando fonte dos procedimentos...")
+    # Pegar FONTE diretamente da Bronze para cada registro
+    for idx, row in df_positivos.iterrows():
+        if pd.isna(df_positivos.loc[idx, 'FONTE'] if 'FONTE' in df_positivos.columns else None):
+            # Buscar na bronze_info
+            match = df_bronze_info[
+                (df_bronze_info['CD_ATENDIMENTO'] == row['CD_ATENDIMENTO']) &
+                (df_bronze_info['CD_OCORRENCIA'] == row['CD_OCORRENCIA']) &
+                (df_bronze_info['CD_ORDEM'] == row['CD_ORDEM'])
+            ]
+            if len(match) > 0:
+                df_positivos.loc[idx, 'FONTE'] = match.iloc[0]['FONTE']
 
 # COMMAND ----------
 
