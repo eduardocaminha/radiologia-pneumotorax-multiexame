@@ -965,8 +965,11 @@ if len(df_rx_todos) > 0:
     df_rx_todos['DS_LAUDO_MEDICO'] = df_rx_todos['DS_LAUDO_MEDICO'].fillna('SEM LAUDO')
     
     print(f"✅ Laudos anexados")
-    print(f"   Com laudo: {sum(df_rx_todos['DS_LAUDO_MEDICO'] != 'SEM LAUDO')}")
-    print(f"   Sem laudo: {sum(df_rx_todos['DS_LAUDO_MEDICO'] == 'SEM LAUDO')}")
+    # Usar len() ao invés de sum() para evitar conflito com PySpark
+    com_laudo = len(df_rx_todos[df_rx_todos['DS_LAUDO_MEDICO'] != 'SEM LAUDO'])
+    sem_laudo = len(df_rx_todos[df_rx_todos['DS_LAUDO_MEDICO'] == 'SEM LAUDO'])
+    print(f"   Com laudo: {com_laudo}")
+    print(f"   Sem laudo: {sem_laudo}")
 
 # COMMAND ----------
 
@@ -1041,9 +1044,13 @@ if len(df_rx_todos) > 0:
     df_rx_todos['DT_PROCESSAMENTO'] = datetime.now()
     
     print(f"✅ Metadados adicionados")
-    print(f"   Urgência: {sum(df_rx_todos['TIPO_ATENDIMENTO'] == 'URGENCIA')}")
-    print(f"   Eletivo: {sum(df_rx_todos['TIPO_ATENDIMENTO'] == 'ELETIVO')}")
-    print(f"   Sem info: {df_rx_todos['TIPO_ATENDIMENTO'].isna().sum()}")
+    # Usar len() ao invés de sum() para evitar conflito com PySpark
+    total_urgencia = len(df_rx_todos[df_rx_todos['TIPO_ATENDIMENTO'] == 'URGENCIA'])
+    total_eletivo = len(df_rx_todos[df_rx_todos['TIPO_ATENDIMENTO'] == 'ELETIVO'])
+    total_sem_info = df_rx_todos['TIPO_ATENDIMENTO'].isna().sum()  # Este sum() é do Pandas, funciona
+    print(f"   Urgência: {total_urgencia}")
+    print(f"   Eletivo: {total_eletivo}")
+    print(f"   Sem info: {total_sem_info}")
 
 # COMMAND ----------
 
