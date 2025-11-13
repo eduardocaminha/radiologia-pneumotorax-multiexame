@@ -628,7 +628,11 @@ print(f"\n📊 Resultados LLM:")
 total_sim = len([x for x in resultados_llm if x == 'SIM'])
 total_nao = len([x for x in resultados_llm if x == 'NAO'])
 total_erro = len([x for x in resultados_llm if x == 'ERRO'])
-tempo_medio = sum(tempos_llm) / len(tempos_llm) if len(tempos_llm) > 0 else 0
+
+# Calcular tempo médio usando reduce ao invés de sum() do PySpark
+from functools import reduce
+tempo_total = reduce(lambda a, b: a + b, tempos_llm, 0)
+tempo_medio = tempo_total / len(tempos_llm) if len(tempos_llm) > 0 else 0
 
 print(f"   SIM: {total_sim}")
 print(f"   NAO: {total_nao}")
