@@ -986,8 +986,8 @@ if len(df_rx_todos) > 0:
         df_rx_todos['CD_ORDEM'].astype(str)
     )
     
-    # Adicionar NM_PROCEDIMENTO
-    df_rx_todos['NM_PROCEDIMENTO'] = df_rx_todos['CD_PROCEDIMENTO'].map(dict_proc_rx)
+    # NM_PROCEDIMENTO removido - causa erro no Spark
+    # Pode ser buscado depois via JOIN com tabela de procedimentos se necessário
     
     # Join com CD_PACIENTE da Silver
     df_pacientes_silver = df_positivos[['CD_ATENDIMENTO', 'CD_PACIENTE']].drop_duplicates()
@@ -1060,12 +1060,17 @@ if len(df_rx_todos) > 0:
 # COMMAND ----------
 
 if len(df_rx_todos) > 0:
-    # Reordenar colunas
+    # Reordenar colunas (NM_PROCEDIMENTO removido - causa erro no Spark)
     colunas_gold = [
         'CD_PACIENTE', 'CD_ATENDIMENTO', 'CD_OCORRENCIA', 'CD_ORDEM',
-        'ACC_NUM', 'CD_PROCEDIMENTO', 'NM_PROCEDIMENTO', 'DS_LAUDO_MEDICO',
+        'ACC_NUM', 'CD_PROCEDIMENTO', 'DS_LAUDO_MEDICO',
         'CD_MOTIVO_ATENDIMENTO', 'TIPO_ATENDIMENTO', 'FONTE', 'DT_PROCESSAMENTO'
     ]
+    
+    # Adicionar TS_RX se existir
+    if 'TS_RX' in df_rx_todos.columns:
+        colunas_gold.insert(colunas_gold.index('DS_LAUDO_MEDICO'), 'TS_RX')
+    
     df_gold_pd = df_rx_todos[colunas_gold]
     
     print(f"📊 Total de registros Gold: {len(df_gold_pd)}")
