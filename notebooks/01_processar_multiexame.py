@@ -1147,37 +1147,29 @@ print("=" * 60)
 
 # Validar apenas RX com laudo
 resultados_llm_rx = []
-tempos_llm_rx = []
 
 print(f"🤖 Validando {len(df_com_laudo)} laudos de RX com LLM...")
 
 for _, row in tqdm(df_com_laudo.iterrows(), total=len(df_com_laudo), desc="Validando laudos RX"):
-    resposta, tempo = validar_pneumot_llm(str(row['DS_LAUDO_MEDICO']))
+    resposta, _ = validar_pneumot_llm(str(row['DS_LAUDO_MEDICO']))
     resultados_llm_rx.append(resposta)
-    tempos_llm_rx.append(tempo)
 
 # Adicionar resultados ao DataFrame com laudo
 df_com_laudo.loc[:, 'INF_LLM_PNEUMOT'] = resultados_llm_rx
-df_com_laudo.loc[:, 'TEMPO_LLM_RX_S'] = tempos_llm_rx
 
 # Estatísticas
-from functools import reduce
 total_sim_rx = len([x for x in resultados_llm_rx if x == 'SIM'])
 total_nao_rx = len([x for x in resultados_llm_rx if x == 'NAO'])
 total_erro_rx = len([x for x in resultados_llm_rx if x == 'ERRO'])
-tempo_total_rx = reduce(lambda a, b: a + b, tempos_llm_rx, 0)
-tempo_medio_rx = tempo_total_rx / len(tempos_llm_rx) if len(tempos_llm_rx) > 0 else 0
 
 print(f"\n📊 Resultados LLM para Laudos de RX:")
 print(f"   SIM (pneumotórax confirmado): {total_sim_rx}")
 print(f"   NAO (sem pneumotórax): {total_nao_rx}")
 print(f"   ERRO: {total_erro_rx}")
-print(f"   Tempo médio: {tempo_medio_rx:.2f}s")
 
-# Verificar se colunas foram criadas
+# Verificar se coluna foi criada
 print(f"\n🔍 Debug - Colunas em df_com_laudo: {list(df_com_laudo.columns)}")
 print(f"   INF_LLM_PNEUMOT presente: {'INF_LLM_PNEUMOT' in df_com_laudo.columns}")
-print(f"   TEMPO_LLM_RX_S presente: {'TEMPO_LLM_RX_S' in df_com_laudo.columns}")
 
 # COMMAND ----------
 
@@ -1188,7 +1180,7 @@ print(f"   TEMPO_LLM_RX_S presente: {'TEMPO_LLM_RX_S' in df_com_laudo.columns}")
 
 # Merge validação LLM de volta ao DataFrame Gold completo
 df_gold_pd = df_gold_pd.merge(
-    df_com_laudo[['ACC_NUM', 'INF_LLM_PNEUMOT', 'TEMPO_LLM_RX_S']],
+    df_com_laudo[['ACC_NUM', 'INF_LLM_PNEUMOT']],
     on='ACC_NUM',
     how='left'
 )
