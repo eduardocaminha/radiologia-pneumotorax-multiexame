@@ -1157,8 +1157,8 @@ for _, row in tqdm(df_com_laudo.iterrows(), total=len(df_com_laudo), desc="Valid
     tempos_llm_rx.append(tempo)
 
 # Adicionar resultados ao DataFrame com laudo
-df_com_laudo['INF_LLM_PNEUMOT'] = resultados_llm_rx
-df_com_laudo['TEMPO_LLM_RX_S'] = tempos_llm_rx
+df_com_laudo.loc[:, 'INF_LLM_PNEUMOT'] = resultados_llm_rx
+df_com_laudo.loc[:, 'TEMPO_LLM_RX_S'] = tempos_llm_rx
 
 # Estatísticas
 from functools import reduce
@@ -1173,6 +1173,11 @@ print(f"   SIM (pneumotórax confirmado): {total_sim_rx}")
 print(f"   NAO (sem pneumotórax): {total_nao_rx}")
 print(f"   ERRO: {total_erro_rx}")
 print(f"   Tempo médio: {tempo_medio_rx:.2f}s")
+
+# Verificar se colunas foram criadas
+print(f"\n🔍 Debug - Colunas em df_com_laudo: {list(df_com_laudo.columns)}")
+print(f"   INF_LLM_PNEUMOT presente: {'INF_LLM_PNEUMOT' in df_com_laudo.columns}")
+print(f"   TEMPO_LLM_RX_S presente: {'TEMPO_LLM_RX_S' in df_com_laudo.columns}")
 
 # COMMAND ----------
 
