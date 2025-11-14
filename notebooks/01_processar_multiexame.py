@@ -1198,6 +1198,7 @@ df_gold_spark_final = spark.createDataFrame(df_gold_pd)
 
 df_gold_spark_final.write \
     .format("delta") \
+    .option("mergeSchema", "true") \
     .mode("overwrite") \
     .saveAsTable(TABELA_GOLD)
 
