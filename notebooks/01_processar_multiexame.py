@@ -840,10 +840,10 @@ for fonte in ['HSP', 'PSC']:
             # Buscar RX realizados 12h ANTES de cada procedimento positivo
             query_rx = f"""
             WITH PROC_POSITIVO AS (
-                SELECT 
-                    CD_ATENDIMENTO,
-                    CD_OCORRENCIA,
-                    CD_ORDEM,
+            SELECT 
+                CD_ATENDIMENTO,
+                CD_OCORRENCIA,
+                CD_ORDEM,
                     CAST(
                         TO_DATE(DT_PROCEDIMENTO_REALIZADO, 'DD/MM/RR')
                         + NUMTODSINTERVAL(HR_PROCEDIMENTO_REALIZADO, 'SECOND')
@@ -1091,6 +1091,120 @@ if len(df_rx_todos) > 0:
     display(spark.table(TABELA_GOLD).limit(10))
 else:
     print("⚠️ Nenhum registro para salvar na Gold!")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 5.6. Validar Laudos de RX com LLM (Pneumotórax)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 5.6.1. TESTE - Validar 3 Laudos de RX com LLM
+
+# COMMAND ----------
+
+# Ler Gold
+df_gold_spark = spark.table(TABELA_GOLD)
+df_gold_pd = df_gold_spark.toPandas()
+
+# Filtrar apenas RX com laudo
+df_com_laudo = df_gold_pd[df_gold_pd['DS_LAUDO_MEDICO'] != 'SEM LAUDO'].copy()
+
+print(f"📊 RX na Gold: {len(df_gold_pd)}")
+print(f"📊 RX com laudo: {len(df_com_laudo)}")
+print(f"📊 RX sem laudo: {len(df_gold_pd) - len(df_com_laudo)}")
+
+# TESTAR COM 3 LAUDOS
+print("\n🧪 MODO TESTE: Validando 3 laudos de RX com LLM")
+print("=" * 60)
+
+df_teste_rx = df_com_laudo.head(3)
+
+for idx, row in df_teste_rx.iterrows():
+    print(f"\n🔍 Teste {idx + 1}/3:")
+    print(f"   ACC_NUM: {row['ACC_NUM']}")
+    print(f"   Laudo: {str(row['DS_LAUDO_MEDICO'])[:150]}...")
+    
+    try:
+        resposta, tempo = validar_pneumot_llm(str(row['DS_LAUDO_MEDICO']))
+        print(f"   ✅ Resposta LLM: {resposta} (tempo: {tempo:.2f}s)")
+    except Exception as e:
+        print(f"   ❌ ERRO: {e}")
+        raise
+
+print("\n" + "=" * 60)
+print("✅ TESTE LLM RX CONCLUÍDO!")
+print("   Pode prosseguir com validação completa.")
+print("=" * 60)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 5.6.2. Validar Todos os Laudos de RX com LLM (Produção)
+
+# COMMAND ----------
+
+# Validar apenas RX com laudo
+resultados_llm_rx = []
+tempos_llm_rx = []
+
+print(f"🤖 Validando {len(df_com_laudo)} laudos de RX com LLM...")
+
+for _, row in tqdm(df_com_laudo.iterrows(), total=len(df_com_laudo), desc="Validando laudos RX"):
+    resposta, tempo = validar_pneumot_llm(str(row['DS_LAUDO_MEDICO']))
+    resultados_llm_rx.append(resposta)
+    tempos_llm_rx.append(tempo)
+
+# Adicionar resultados ao DataFrame com laudo
+df_com_laudo['INF_LLM_PNEUMOT'] = resultados_llm_rx
+df_com_laudo['TEMPO_LLM_RX_S'] = tempos_llm_rx
+
+# Estatísticas
+from functools import reduce
+total_sim_rx = len([x for x in resultados_llm_rx if x == 'SIM'])
+total_nao_rx = len([x for x in resultados_llm_rx if x == 'NAO'])
+total_erro_rx = len([x for x in resultados_llm_rx if x == 'ERRO'])
+tempo_total_rx = reduce(lambda a, b: a + b, tempos_llm_rx, 0)
+tempo_medio_rx = tempo_total_rx / len(tempos_llm_rx) if len(tempos_llm_rx) > 0 else 0
+
+print(f"\n📊 Resultados LLM para Laudos de RX:")
+print(f"   SIM (pneumotórax confirmado): {total_sim_rx}")
+print(f"   NAO (sem pneumotórax): {total_nao_rx}")
+print(f"   ERRO: {total_erro_rx}")
+print(f"   Tempo médio: {tempo_medio_rx:.2f}s")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 5.6.3. Atualizar Tabela Gold com Validação LLM
+
+# COMMAND ----------
+
+# Merge validação LLM de volta ao DataFrame Gold completo
+df_gold_pd = df_gold_pd.merge(
+    df_com_laudo[['ACC_NUM', 'INF_LLM_PNEUMOT', 'TEMPO_LLM_RX_S']],
+    on='ACC_NUM',
+    how='left'
+)
+
+# RX sem laudo ficam com NULL (não sabemos se tem pneumotórax)
+print(f"✅ Validação LLM anexada ao Gold")
+print(f"   Com validação LLM: {df_gold_pd['INF_LLM_PNEUMOT'].notna().sum()}")
+print(f"   Sem validação (SEM LAUDO): {df_gold_pd['INF_LLM_PNEUMOT'].isna().sum()}")
+
+# Converter para Spark e salvar
+df_gold_spark_final = spark.createDataFrame(df_gold_pd)
+
+df_gold_spark_final.write \
+    .format("delta") \
+    .mode("overwrite") \
+    .saveAsTable(TABELA_GOLD)
+
+print(f"\n✅ Tabela Gold atualizada com INF_LLM_PNEUMOT: {TABELA_GOLD}")
+
+# Mostrar amostra
+display(spark.table(TABELA_GOLD).limit(10))
 
 # COMMAND ----------
 
